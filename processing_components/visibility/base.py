@@ -83,7 +83,7 @@ def create_visibility(config: Configuration, times: numpy.array, frequency: nump
         # Calculate the positions of the antennas as seen for this hour angle
         # and declination
         _, elevation = hadec_to_azel(ha, phasecentre.dec.rad, latitude)
-        if elevation_limit is None or (elevation > elevation_limit):
+        if elevation_limit is None or (numpy.fabs(elevation) > elevation_limit):
             ntimes +=1
 
     npol = polarisation_frame.npol
@@ -107,9 +107,10 @@ def create_visibility(config: Configuration, times: numpy.array, frequency: nump
         # Calculate the positions of the antennas as seen for this hour angle
         # and declination
         _, elevation = hadec_to_azel(ha, phasecentre.dec.rad, latitude)
-        if elevation_limit is None or (elevation > elevation_limit):
+        if elevation_limit is None or (numpy.fabs(elevation) > elevation_limit):
             rtimes[row:row + nrowsperintegration] = ha * 43200.0 / numpy.pi
-           
+            
+
             # Loop over all pairs of antennas. Note that a2>a1
             ant_pos = xyz_to_uvw(ants_xyz, ha, phasecentre.dec.rad)
             for a1 in range(nants):
@@ -126,7 +127,7 @@ def create_visibility(config: Configuration, times: numpy.array, frequency: nump
                         rfrequency[row] = frequency[ch]
                         rchannel_bandwidth[row] = channel_bandwidth[ch]
                         row += 1
-    
+
     if zerow:
         ruvw[..., 2] = 0.0
     assert row == nrows

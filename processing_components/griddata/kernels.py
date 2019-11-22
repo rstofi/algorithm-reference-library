@@ -98,7 +98,7 @@ def create_pswf_convolutionfunction(im, oversampling=8, support=6):
 
 
 def create_awterm_convolutionfunction(im, make_pb=None, nw=1, wstep=1e15, oversampling=8, support=6, use_aaf=True,
-                                      maxsupport=512):
+                                      maxsupport=512, **kwargs):
     """ Fill AW projection kernel into a GridData.
 
     :param im: Image template
@@ -129,7 +129,7 @@ def create_awterm_convolutionfunction(im, make_pb=None, nw=1, wstep=1e15, oversa
         w_list = cf.grid_wcs.sub([5]).wcs_pix2world(range(nw), 0)[0]
     else:
         w_list = [0.0]
-        
+
     assert isinstance(oversampling, int)
     assert oversampling > 0
 
@@ -161,7 +161,7 @@ def create_awterm_convolutionfunction(im, make_pb=None, nw=1, wstep=1e15, oversa
         rpb, footprint = reproject_image(pb, subim.wcs, shape=subim.shape)
         rpb.data[footprint.data < 1e-6] = 0.0
         norm *= rpb.data
-    
+
     # We might need to work with a larger image
     padded_shape = [nchan, npol, ny, nx]
     thisplane = copy_image(subim)
@@ -190,7 +190,87 @@ def create_awterm_convolutionfunction(im, make_pb=None, nw=1, wstep=1e15, oversa
 
     cf.data /= numpy.sum(numpy.real(cf.data[0, 0, nw // 2, oversampling // 2, oversampling // 2, :, :]))
     cf.data = numpy.conjugate(cf.data)
-    
+
+    #====================================
+    #Use ASKAPSoft routine to crop the support size
+    crop_ASKAPSOft_like = True;
+    if crop_ASKAPSOft_like:
+        #Hardcode the cellsize: 1 / FOV
+        #uv_cellsize = 57.3;#N=1200 pixel and pixelsize is 3 arcseconds
+        #uv_cellsize = 43.97;#N=1600 pixel and pixelsize is 3 arcseconds
+        #uv_cellsize = 114.6;#N=1800 pixel with 1 arcsecond pixelsize
+        #uv_cellsize = 57.3;#N=1800 pixel with 2 arcsecond pixelsize
+        #uv_cellsize = 1145.91509915;#N=1800 pixxel with 0.1 arcsecond pixelsize
+
+        #Get from **kwargs
+        if kwargs is None:
+            #Safe solution works for baselines up to > 100km and result in small kernels
+            uv_cellsize = 1145.91509915;#N=1800 pixxel with 0.1 arcsecond pixelsize
+            
+        if 'UVcellsize' in kwargs.keys():
+            uv_cellsize = kwargs['UVcellsize'];
+
+        #print(uv_cellsize);
+
+        #Cutoff param in ASKAPSoft hardcoded as well
+        ASKAPSoft_cutof = 0.1;
+
+        wTheta_list = numpy.zeros(len(w_list));
+        for i in range(0,len(w_list)):
+            if w_list[i] == 0:
+                wTheta_list[i] = 0.9;#This is due to the future if statements cause if it is small, the kernel will be 3 which is a clear cutoff
+            else:
+                wTheta_list[i] =  numpy.fabs(w_list[i]) / (uv_cellsize * uv_cellsize);
+
+        kernel_size_list = [];
+
+        #We rounded the kernels according to conventional rounding rules
+        for i in range(0,len(wTheta_list)):
+            #if wTheta_list[i] < 1:
+            if wTheta_list[i] < 1:#Change to ASKAPSoft
+                kernel_size_list.append(int(3.));
+            elif ASKAPSoft_cutof < 0.01:
+                kernel_size_list.append(int(6 + 1.14*wTheta_list[i]));
+            else:
+                kernel_size_list.append(int(numpy.sqrt( 49 + wTheta_list[i] * wTheta_list[i])));
+
+        log.info('W-kernel w-terms:');
+        log.info(w_list);
+        log.info('Corresponding w-kernel sizes:');
+        log.info(kernel_size_list);
+
+        print(numpy.unique(kernel_size_list));
+        #print(kernel_size_list);
+
+        crop_list = [];
+        #another rounding according to conventional rounding rules
+        for i in range(0,len(kernel_size_list)):
+            if support - kernel_size_list[i] <= 0:
+                crop_list.append(int(0));
+            else:
+                crop_list.append(int((support - kernel_size_list[i]) / 2));
+
+        #Crop original suppor    
+        for i in range(0,nw):
+            if crop_list[i] != 0:
+                cf.data[0,0,i,:,:,0:crop_list[i],:] = 0;
+                cf.data[0,0,i,:,:,-crop_list[i]:,:] = 0;
+                cf.data[0,0,i,:,:,:,0:crop_list[i]] = 0;
+                cf.data[0,0,i,:,:,:,-crop_list[i]:] = 0;
+            else:
+                pass;
+
+
+            #Plot
+            #import matplotlib.pyplot as plt
+            #cf.data[0,0,i,0,0,...][cf.data[0,0,i,0,0,...] != 0.] = 1+0.j;
+            #plt.imshow(numpy.real(cf.data[0,0,i,0,0,...]))
+
+            #plt.show(block=True)
+            #plt.close();
+
+    #====================================
+
     if use_aaf:
         pswf_gcf, _ = create_pswf_convolutionfunction(im, oversampling=1, support=6)
     else:
